@@ -18,24 +18,38 @@ package cmd
 import (
 	"bufio"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io/ioutil"
 	"log"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/fogleman/gg"
+	"github.com/golang/freetype/truetype"
 	"github.com/spf13/cobra"
+	"golang.org/x/image/draw"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/font/gofont/gobold"
+	"golang.org/x/image/math/fixed"
 )
 
 type RnaMatch struct {
-	rna  string
-	low  int
-	high int
+	rna    string
+	index  int
+	length int
 }
 
 type Genome struct {
-	file string
-	rna  string
+	file     string
+	baseName string
+	rna      string
+	rnaMatch string
+	matches  map[int]RnaMatch
 }
 
 func NewGenome() *Genome {
@@ -45,6 +59,7 @@ func NewGenome() *Genome {
 func NewGenomeFromFile(file string) *Genome {
 	genome := NewGenome()
 	genome.file = file
+	genome.baseName = filepath.Base(strings.TrimSuffix(file, filepath.Ext(file)))
 	genome.appendRnaFromFile(file)
 	return genome
 }
@@ -83,65 +98,171 @@ func extractRna(input string) string {
 	return rna
 }
 
-func (genome *Genome) compareTo(compareGenome *Genome) string {
+func (genome *Genome) findLongestMatchAtPos(pos int, compareGenome *Genome, min int) RnaMatch {
+	var match RnaMatch
+	// var matchLength int
+	sourceHaystack := genome.rna[pos:]
+	length := int(math.Min(float64(min), float64(len(sourceHaystack))))
+	for ; (length) <= len(sourceHaystack); length++ {
+		needle := sourceHaystack[0:length]
+		if index := strings.Index(compareGenome.rna, needle); index >= 0 {
+			match = RnaMatch{needle, pos, length}
+			continue
+		}
+		break
+	}
+	return match
+}
+
+func (genome *Genome) findMatches(compareGenome *Genome) {
 	var result string
-	var totalMatches int
-	var longestMatch int
-	var matchIndex int
+	genome.matches = map[int]RnaMatch{}
 	matches := []RnaMatch{}
-	var i int
-	var j int
 	min := 8
-	for ; i < len(genome.rna); i += j {
-		j = int(math.Min(float64(min), float64(len(genome.rna)-i)))
-		var rnaSlice string
-		var rnaIndex int
-		for ; (i + j) <= len(genome.rna); j++ {
-			rnaSlice = genome.rna[i:(i + j)]
-			rnaIndex = strings.Index(compareGenome.rna, rnaSlice)
-			if rnaIndex == -1 {
-				break
-			}
-			matchIndex = rnaIndex
-		}
-		if j > min {
-			longestMatch = int(math.Max(float64(j), float64(longestMatch)))
-			match := RnaMatch{rnaSlice, matchIndex, j}
+	for i := 0; i < len(genome.rna); {
+		match := genome.findLongestMatchAtPos(i, compareGenome, min)
+		if match.length > min {
+			genome.matches[i] = match
 			matches = append(matches, match)
-			result += strings.ToUpper(rnaSlice)
-			totalMatches += j
-		} else {
-			result += rnaSlice
+			result += strings.ToUpper(match.rna)
+			i += match.length
+			continue
 		}
-	}
-
-	sequentialMatches := matches[0:1]
-	for i = 0; i < (len(matches) - 1); {
+		result += genome.rna[i:(i + 1)]
 		i++
-		next := i
-		nextLowest := matches[next].low
-		for j, match := range matches[next:] {
-			if match.low < nextLowest {
-				next = i + j
-				nextLowest = match.low
-			}
-		}
-		sequentialMatches = append(sequentialMatches, matches[next])
-		i = next
+	}
+	genome.rnaMatch = result
+}
+
+func (genome *Genome) getTotalMatchSize() int {
+	var size int
+	for _, match := range genome.matches {
+		size += match.length
+	}
+	return size
+}
+
+func (genome *Genome) getLongestMatch() int {
+	var size int
+	for _, match := range genome.matches {
+		size = int(math.Max(float64(size), float64(match.length)))
+	}
+	return size
+}
+
+func (genome *Genome) findSequentialMatches(compareGenome *Genome) string {
+	// sequentialMatches := matches[0:1]
+	// for i = 0; i < (len(matches) - 1); {
+	// 	i++
+	// 	next := i
+	// 	nextLowest := matches[next].low
+	// 	for j, match := range matches[next:] {
+	// 		if match.low < nextLowest {
+	// 			next = i + j
+	// 			nextLowest = match.low
+	// 		}
+	// 	}
+	// 	sequentialMatches = append(sequentialMatches, matches[next])
+	// 	i = next
+	// }
+	return ""
+}
+
+func addLabel2(img *image.RGBA, text string) {
+	dc := gg.NewContextForRGBA(img)
+	// const S = 1024
+	// dc := gg.NewContext(S, S)
+	// dc.SetRGB(1, 1, 1)
+	// dc.Clear()
+
+	// font, _ := truetype.Parse(goregular.TTF)
+	font, _ := truetype.Parse(gobold.TTF)
+	face := truetype.NewFace(font, &truetype.Options{
+		Size: 40,
+	})
+	dc.SetFontFace(face)
+	dc.SetRGBA255(255, 255, 255, 255)
+	dc.DrawString(text, 10, 50)
+}
+
+func addLabel(img *image.RGBA, x, y int, label string) {
+	col := color.RGBA{255, 255, 255, 255}
+	point := fixed.Point26_6{X: fixed.Int26_6(x * 64), Y: fixed.Int26_6(y * 64)}
+
+	d := &font.Drawer{
+		Dst:  img,
+		Src:  image.NewUniform(col),
+		Face: basicfont.Face7x13,
+		Dot:  point,
+	}
+	d.DrawString(label)
+}
+
+func (genome *Genome) writeCompareImage(compareGenome *Genome) {
+	width := int(math.Ceil(math.Sqrt(float64(len(genome.rna)))))
+	height := width
+	upLeft := image.Point{0, 0}
+	lowRight := image.Point{width, height}
+
+	img := image.NewRGBA(image.Rectangle{upLeft, lowRight})
+
+	colors := map[string]color.RGBA{
+		"a": color.RGBA{114, 27, 101, 0xff},
+		"t": color.RGBA{248, 97, 90, 0xff},
+		"g": color.RGBA{184, 13, 87, 0xff},
+		"c": color.RGBA{255, 217, 104, 0xff},
+		"A": color.RGBA{25, 70, 112, 0xff},
+		"T": color.RGBA{76, 158, 234, 0xff},
+		"G": color.RGBA{1, 90, 172, 0xff},
+		"C": color.RGBA{189, 223, 255, 0xff},
 	}
 
-	fmt.Printf("Genome: %s (size: %d)\n", filepath.Base(genome.file), len(genome.rna))
-	fmt.Printf("Compare to: %s (size: %d)\n", filepath.Base(compareGenome.file), len(compareGenome.rna))
-	fmt.Printf("Total matches: %d\n", len(matches))
-	fmt.Printf("Total Sequential matches: %d\n", len(sequentialMatches))
+	x := 0
+	y := 0
+
+	for _, char := range genome.rnaMatch {
+		img.Set(x, y, colors[string(char)])
+		x++
+		if x >= width {
+			y++
+			x = 0
+		}
+	}
+
+	sb := img.Bounds()
+	dst := image.NewRGBA(image.Rect(0, 0, sb.Dx()*5, sb.Dy()*5))
+	draw.NearestNeighbor.Scale(dst, dst.Bounds(), img, sb, draw.Over, nil)
+
+	addLabel2(dst, compareGenome.baseName)
+
+	// Encode as PNG.
+	filePath := "./genome/images/" + genome.baseName + "-" + compareGenome.baseName + ".png"
+	fmt.Printf("Writing image: %s\n", filePath)
+	f, _ := os.Create(filePath)
+	png.Encode(f, dst)
+}
+
+func (genome *Genome) compareTo(compareGenome *Genome) string {
+
+	genome.findMatches(compareGenome)
+	longestMatch := genome.getLongestMatch()
+	totalMatchSize := genome.getTotalMatchSize()
+
+	// fmt.Printf("%s\n\n", result)
+
+	fmt.Printf("Genome: %s (size: %d)\n", genome.baseName, len(genome.rna))
+	fmt.Printf("Compare to: %s (size: %d)\n", compareGenome.baseName, len(compareGenome.rna))
+	fmt.Printf("Total matches: %d\n", len(genome.matches))
 	// fmt.Printf("Match sequence: %s\n", fmt.Sprint(matchSequence))
 	fmt.Printf("Longest match: %d\n", longestMatch)
-	fmt.Printf("Match: %.2f%% (check size: %d)\n\n", (float64(totalMatches) / float64(len(result)) * float64(100)), len(result))
+	fmt.Printf("Match: %.2f%% (check size: %d)\n\n", (float64(totalMatchSize) / float64(len(genome.rnaMatch)) * float64(100)), len(genome.rnaMatch))
+
+	genome.writeCompareImage(compareGenome)
 
 	// fmt.Printf("Result size: %d Check size: %d Compare size: %d\n", len(result), len(genome.rna), len(compareGenome.rna))
 
 	// strconv.FormatFloat(output.duration, 'f', -1, 64)
-	return result
+	return genome.rnaMatch
 	// img := image.NewRGBA(image.Rect(0, 0, 320, 240))
 	// x, y := 100, 100
 	// addLabel(img, x, y, "Test123")
@@ -259,6 +380,12 @@ to quickly create a Cobra application.`,
 		func() {
 			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
 			genome2 := NewGenomeFromFile("./genome/examples/Pangolin-CoV-MT072864.txt")
+			genome1.compareTo(genome2)
+		}()
+
+		func() {
+			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
+			genome2 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
 			genome1.compareTo(genome2)
 		}()
 
