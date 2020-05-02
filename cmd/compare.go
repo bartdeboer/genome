@@ -402,7 +402,7 @@ func (dnaSequence *Sequence) transcribe() *Sequence {
 	dnaSequence.rna = rna
 	// dnaSequence.protein = protein
 	// dnaSequence.proteinSegments = proteinSegments
-	fmt.Printf("%s\n", protein.chars)
+	// fmt.Printf("%s\n", protein.chars)
 	return protein
 }
 
@@ -518,7 +518,7 @@ func getSequenceImg(sequence string, matchMask string, segmentMask string, charS
 	for i, b := range sequence {
 		char := string(b)
 		segmentMaskIndex, _ := strconv.ParseInt(string(segmentMask[i]), 36, 0)
-		segmentMaskIndex = segmentMaskIndex % int64(len(palette[0]))
+		segmentMaskIndex = segmentMaskIndex % int64(len(palette))
 
 		if len(matchMask) > i && string(matchMask[i]) == "1" {
 			img.Set(x, y, matchPalette[int(segmentMaskIndex)][char])
@@ -577,9 +577,9 @@ func (sequence *Sequence) compareTo(compareSequence *Sequence, min int) {
 	fmt.Printf("Check RNA size: %d\n", len(sequence.chars))
 	fmt.Printf("Check match size: %d\n", len(sequence.matchMask))
 	fmt.Printf("Check segment size: %d\n", len(sequence.segmentMask))
-	fmt.Printf("%s\n", sequence.chars[:100])
-	fmt.Printf("%s\n", sequence.matchMask[:100])
-	// fmt.Printf("%s\n", sequence.segmentMask[:100])
+	// fmt.Printf("%s\n", sequence.chars[:100])
+	// fmt.Printf("%s\n", sequence.matchMask[:100])
+	// fmt.Printf("%s\n", sequence.segmentMask)
 }
 
 var seededRand *rand.Rand = rand.New(
@@ -653,6 +653,36 @@ to quickly create a Cobra application.`,
 
 		func() {
 			genome2 := NewSequenceFromFile("./genome/examples/HCoV-OC43-AY391777.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
+		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/HCoV-229E-MF542265.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
+		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/HCoV-NL63-MG772808.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
+		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/HCoV-HKU1-AY597011.txt")
 			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 
