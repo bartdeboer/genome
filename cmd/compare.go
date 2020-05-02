@@ -24,11 +24,13 @@ import (
 	"io/ioutil"
 	"log"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
@@ -36,6 +38,128 @@ import (
 	"golang.org/x/image/draw"
 	"golang.org/x/image/font/gofont/gobold"
 )
+
+// Amino Acid Codes
+// https://www.ddbj.nig.ac.jp/ddbj/code-e.html
+
+var codonTranslation = map[string]string{
+	"TTT": "F",
+	"TTC": "F",
+	"TTA": "L",
+	"TTG": "L",
+	"TCT": "S",
+	"TCC": "S",
+	"TCA": "S",
+	"TCG": "S",
+	"TAT": "Y",
+	"TAC": "Y",
+	"TAA": "X",
+	"TAG": "X",
+	"TGT": "C",
+	"TGC": "C",
+	"TGA": "X",
+	"TGG": "W",
+	"CTT": "L",
+	"CTC": "L",
+	"CTA": "L",
+	"CTG": "L",
+	"CCT": "P",
+	"CCC": "P",
+	"CCA": "P",
+	"CCG": "P",
+	"CAT": "H",
+	"CAC": "H",
+	"CAA": "Q",
+	"CAG": "Q",
+	"CGT": "R",
+	"CGC": "R",
+	"CGA": "R",
+	"CGG": "R",
+	"ATT": "I",
+	"ATC": "I",
+	"ATA": "I",
+	"ATG": "M",
+	"ACT": "T",
+	"ACC": "T",
+	"ACA": "T",
+	"ACG": "T",
+	"AAT": "N",
+	"AAC": "N",
+	"AAA": "K",
+	"AAG": "K",
+	"AGT": "S",
+	"AGC": "S",
+	"AGA": "R",
+	"AGG": "R",
+	"GTT": "V",
+	"GTC": "V",
+	"GTA": "V",
+	"GTG": "V",
+	"GCT": "A",
+	"GCC": "A",
+	"GCA": "A",
+	"GCG": "A",
+	"GAT": "D",
+	"GAC": "D",
+	"GAA": "E",
+	"GAG": "E",
+	"GGT": "G",
+	"GGC": "G",
+	"GGA": "G",
+	"GGG": "G",
+	// "n/a": "B",
+	// "n/a": "Z",
+}
+
+func getAminoAcidCharSet() []string {
+	charSet := []string{}
+	existing := make(map[string]bool)
+	for _, code := range codonTranslation {
+		if _, ok := existing[code]; ok {
+			continue
+		}
+		charSet = append(charSet, code)
+		existing[code] = true
+	}
+	return charSet
+}
+
+func getDnaCharSet() []string {
+	return []string{"a", "t", "g", "c"}
+}
+
+var dnaMRnaMap = map[string]string{
+	"a": "u",
+	"t": "a",
+	"g": "c",
+	"c": "g",
+}
+
+var mRnaRnaMap = map[string]string{
+	"u": "a",
+	"a": "u",
+	"c": "g",
+	"g": "c",
+}
+
+var dnaStartCodon = "atg"
+var rnaStartCodon = "uac"
+var mRnaStartCodon = "aug"
+var dnaStopCodons = map[string]bool{
+	"tag": true,
+	"taa": true,
+	"tga": true,
+}
+var mRnaStopCodons = map[string]bool{
+	"auc": true,
+	"auu": true,
+	"acu": true,
+}
+var rnaStopCodons = map[string]bool{
+	"uaa": true,
+	"uag": true,
+	"uga": true,
+}
 
 var darkColors = []string{
 	"#b71c1c",
@@ -108,42 +232,47 @@ func (c *RGBA) RGBA() (r, g, b, a uint32) {
 	return c.rgba.RGBA()
 }
 
-type RnaMatch struct {
-	rna         string
+type Match struct {
+	sequence    string
 	sourceIndex int
 	targetIndex int
 	length      int
 	distance    int
 }
 
-type Genome struct {
+type Sequence struct {
 	file        string
 	baseName    string
+	chars       string
+	mRna        string
 	rna         string
-	rnaMatch    string
+	protein     string // string polypeptides ( = string peptides ( = string amino acids))
+	matches     []Match
 	matchMask   string
+	segments    []SequenceSegment
 	segmentMask string
-	compare     *Genome
-	matches     []RnaMatch
-	segments    []GenomeSegment
+	compare     *Sequence
+	charSet     []string
 }
 
-type GenomeSegment struct {
+type SequenceSegment struct {
 	key   string
 	start int
 	end   int
 }
 
-func NewGenome() *Genome {
-	return &Genome{}
+func NewSequence() *Sequence {
+	return &Sequence{}
 }
 
-func NewGenomeFromFile(file string) *Genome {
-	genome := NewGenome()
-	genome.file = file
-	genome.baseName = filepath.Base(strings.TrimSuffix(file, filepath.Ext(file)))
-	genome.appendRnaFromFile(file)
-	return genome
+func NewSequenceFromFile(file string) *Sequence {
+	sequence := NewSequence()
+	sequence.file = file
+	sequence.baseName = filepath.Base(strings.TrimSuffix(file, filepath.Ext(file)))
+	sequence.appendDnaFromFile(file)
+	sequence.segmentMask = strings.Repeat("0", len(sequence.chars))
+	sequence.matchMask = strings.Repeat("0", len(sequence.chars))
+	return sequence
 }
 
 func readFileContent(file string) string {
@@ -154,39 +283,36 @@ func readFileContent(file string) string {
 	return string(content)
 }
 
-func (genome *Genome) appendRnaFromFile(file string) {
-	genome.segments = []GenomeSegment{}
+func (sequence *Sequence) appendDnaFromFile(file string) {
+	sequence.charSet = getDnaCharSet()
+	if sequence.segments == nil {
+		sequence.segments = []SequenceSegment{}
+	}
 
 	input := readFileContent(file)
 	scanner := bufio.NewScanner(strings.NewReader(input))
-	// r1, _ := regexp.Compile("^\\s*CDS\\s+(.*)$")
-	// r2, _ := regexp.Compile("^\\s*5'UTR\\s+(.*)$")
-	r, _ := regexp.Compile("(.*)\\s+([0-9]+)\\.\\.([0-9]+)$")
-	// cdsr2, _ := regexp.Compile("CDS\\s+join\\(( ([^\\),]+) \\.\\.([0-9]+)),?+\\)$")
+	r1, _ := regexp.Compile("^\\s*(CDS|5'UTR)\\s+(.*)$")
+	r2, _ := regexp.Compile("([0-9]+)\\.\\.([0-9]+)")
 
-	var rna string
-	var rnaLength = int64(len(genome.rna))
+	var chars string
+	var length = int64(len(sequence.chars))
 
 	for scanner.Scan() {
 		text := strings.Trim(scanner.Text(), " ")
 		if text == "ORIGIN" {
 			break
 		}
-		matches := r.FindStringSubmatch(text)
-		if len(matches) != 4 {
+		if !r1.MatchString(text) {
 			continue
 		}
-		name := strings.Trim(matches[1], " ")
-		if name != "gene" {
-			continue
+		matches := r2.FindAllStringSubmatch(text, -1)
+		for _, match := range matches {
+			start, _ := strconv.ParseInt(match[1], 10, 0)
+			start = length + start - 1
+			end, _ := strconv.ParseInt(match[2], 10, 0)
+			end = length + end - 1
+			sequence.segments = append(sequence.segments, SequenceSegment{"", int(start), int(end)})
 		}
-		start, _ := strconv.ParseInt(matches[2], 10, 0)
-		start += rnaLength
-		end, _ := strconv.ParseInt(matches[3], 10, 0)
-		end += rnaLength
-		genome.segments = append(genome.segments, GenomeSegment{name, int(start), int(end)})
-		// genome.segments[int(start)] = GenomeSegment{name, int(start), int(end)}
-		// fmt.Printf("%s %s %d %d\n", matches[0], name, start, end)
 	}
 
 	for scanner.Scan() {
@@ -195,48 +321,19 @@ func (genome *Genome) appendRnaFromFile(file string) {
 			break
 		}
 		pieces := strings.Split(text, " ")
-		rnaPieces := pieces[1:len(pieces)]
-		rna += strings.Join(rnaPieces, "")
+		chars += strings.Join(pieces[1:len(pieces)], "")
 	}
 
-	genome.rna += rna
+	sequence.chars += chars
 }
 
-func (genome *Genome) findLongestFuzzyMatchAtPos(sourceIndex int, compareGenome *Genome, min int, tolerance int) RnaMatch {
-	var match RnaMatch
-	distance := 0
-	source := genome.rna[sourceIndex:]
-	target := compareGenome.rna
+func findLongestMatch(source string, target string, min int) Match {
+	var match Match
 	length := int(math.Min(float64(min), float64(len(source))))
 	for ; (length) <= len(source); length++ {
 		needle := source[0:length]
 		if targetIndex := strings.Index(target, needle); targetIndex >= 0 {
-			match = RnaMatch{needle, sourceIndex, targetIndex, length, distance}
-			continue
-		} else if match.length > 0 {
-			distance++
-			if distance > tolerance {
-				break
-			}
-			mismatchAt := match.targetIndex + length
-			if mismatchAt+1 < len(target) && length+1 < len(source) {
-				target = target[:mismatchAt] + source[length:length+1] + target[mismatchAt+1:]
-				continue
-			}
-		}
-		break
-	}
-	return match
-}
-
-func (genome *Genome) findLongestMatchAtPos(sourceIndex int, compareGenome *Genome, min int) RnaMatch {
-	var match RnaMatch
-	source := genome.rna[sourceIndex:]
-	length := int(math.Min(float64(min), float64(len(source))))
-	for ; (length) <= len(source); length++ {
-		needle := source[0:length]
-		if targetIndex := strings.Index(compareGenome.rna, needle); targetIndex >= 0 {
-			match = RnaMatch{needle, sourceIndex, targetIndex, length, 0}
+			match = Match{needle, 0, targetIndex, length, 0}
 			continue
 		}
 		break
@@ -244,46 +341,98 @@ func (genome *Genome) findLongestMatchAtPos(sourceIndex int, compareGenome *Geno
 	return match
 }
 
-func (genome *Genome) createSegmentMask() {
-	var count int
-	genome.segmentMask = strings.Repeat("0", len(genome.rna))
-	for _, segment := range genome.segments {
-		char := strconv.FormatInt(int64(count+1), 36)
-		mask := strings.Repeat(char, segment.end-segment.start)
-		genome.segmentMask = genome.segmentMask[:segment.start] + mask + genome.segmentMask[segment.end:]
-		count++
-	}
-}
-
-func (genome *Genome) findMatches(compareGenome *Genome) {
-	genome.matchMask = ""
-	genome.matches = []RnaMatch{}
-	min := 8
-	for i := 0; i < len(genome.rna); {
-		// match := genome.findLongestFuzzyMatchAtPos(i, compareGenome, min, 20)
-		match := genome.findLongestMatchAtPos(i, compareGenome, min)
+func findMatches(source string, target string, min int) (matches []Match, mask string) {
+	mask = ""
+	matches = []Match{}
+	for i := 0; i < len(source); {
+		match := findLongestMatch(source[i:], target, min)
+		match.sourceIndex = i
 		if match.length > min {
-			genome.matches = append(genome.matches, match)
-			genome.matchMask += strings.Repeat("1", match.length)
+			matches = append(matches, match)
+			mask += strings.Repeat("1", match.length)
 			i += match.length
 			continue
 		}
-		genome.matchMask += "0"
+		mask += "0"
 		i++
 	}
+	return matches, mask
 }
 
-func (genome *Genome) getTotalMatchSize() int {
+func (sequence *Sequence) findMatches(compareSequence *Sequence, min int) {
+	matches, mask := findMatches(sequence.chars, compareSequence.chars, min)
+	sequence.matches = matches
+	sequence.matchMask = mask
+}
+
+func (dnaSequence *Sequence) transcribe() *Sequence {
+	protein := NewSequence()
+	protein.baseName = "PROT-" + dnaSequence.baseName
+	protein.charSet = getAminoAcidCharSet()
+	protein.segments = []SequenceSegment{}
+	// proteinChars := ""
+	mRna := ""
+	rna := ""
+	for _, char := range dnaSequence.chars {
+		mRnaChar := dnaMRnaMap[string(char)]
+		mRna += mRnaChar
+		rna += mRnaRnaMap[mRnaChar]
+	}
+	for _, segment := range dnaSequence.segments {
+		segmentChars := dnaSequence.chars[segment.start:segment.end]
+		start := len(protein.chars) + 1
+		// mRnaSegment := mRna[segment.start:segment.end]
+		// rnaSegment := rna[segment.start:segment.end]
+		// fmt.Printf("Got segment %d..%d \n%s\n%s\n%s\n", segment.start, segment.end, dnaSegment, mRnaSegment, rnaSegment)
+		// protein += "\n\n"
+		for i := 0; i < len(segmentChars)-2; i += 3 {
+			codon := segmentChars[i : i+3]
+			// if codon == dnaStartCodon {
+			// 	fmt.Printf("Got start at pos %d\n", i)
+			// }
+			char := codonTranslation[strings.ToUpper(codon)]
+			protein.chars += string(char)
+			// if _, ok := dnaStopCodons[codon]; ok {
+			// 	fmt.Printf("Got stop at pos %d.\n", i)
+			// }
+		}
+		protein.segments = append(protein.segments, SequenceSegment{segment.key, start, len(protein.chars)})
+	}
+	dnaSequence.mRna = mRna
+	dnaSequence.rna = rna
+	// dnaSequence.protein = protein
+	// dnaSequence.proteinSegments = proteinSegments
+	fmt.Printf("%s\n", protein.chars)
+	return protein
+}
+
+func createSegmentMask(sequence string, segments []SequenceSegment) string {
+	count := 1
+	mask := strings.Repeat("0", len(sequence))
+	for _, segment := range segments {
+		char := strconv.FormatInt(int64(count%36), 36)
+		segmentChars := strings.Repeat(char, segment.end-segment.start)
+		mask = mask[:segment.start] + segmentChars + mask[segment.end:]
+		count++
+	}
+	return mask
+}
+
+func (sequence *Sequence) createSegmentMask() {
+	sequence.segmentMask = createSegmentMask(sequence.chars, sequence.segments)
+}
+
+func (sequence *Sequence) getTotalMatchSize() int {
 	var size int
-	for _, match := range genome.matches {
+	for _, match := range sequence.matches {
 		size += match.length
 	}
 	return size
 }
 
-func (genome *Genome) getLongestMatch() int {
+func (sequence *Sequence) getLongestMatch() int {
 	var size int
-	for _, match := range genome.matches {
+	for _, match := range sequence.matches {
 		size = int(math.Max(float64(size), float64(match.length)))
 	}
 	return size
@@ -293,8 +442,10 @@ func addLabel(img *image.RGBA, text string, x float64, y float64) {
 	dc := gg.NewContextForRGBA(img)
 	font, _ := truetype.Parse(gobold.TTF)
 	// font, _ := truetype.Parse(goregular.TTF)
+	// font, _ := truetype.Parse(gomono.TTF)
+	// font, _ := truetype.Parse(gomonobold.TTF)
 	face := truetype.NewFace(font, &truetype.Options{
-		Size: 28,
+		Size: 16,
 	})
 	dc.SetFontFace(face)
 	dc.SetRGBA255(255, 255, 255, 255)
@@ -333,26 +484,27 @@ func (c *RGBA) luminance(l float64) *RGBA {
 	}
 }
 
-func (genome *Genome) writeImage() {
-	segmentColors := getColors()
-	segmentMatchColors := getMatchColors()
+func getSequencePalette(colors []RGBA, charSet []string, low float64, high float64) map[int]map[string]*RGBA {
+	palette := map[int]map[string]*RGBA{}
+	for i, color := range colors {
+		for j, char := range charSet {
+			if _, ok := palette[i]; !ok {
+				palette[i] = map[string]*RGBA{}
+			}
+			luminance := float64(j) / float64(len(charSet))
+			luminance = low + (luminance * (1 - low))
+			luminance = luminance * high
+			palette[i][char] = color.luminance(luminance)
+		}
+	}
+	return palette
+}
 
-	fmt.Print(segmentColors[0].rgba)
-	fmt.Print("\n")
-	fmt.Print(segmentMatchColors[0].rgba)
-	fmt.Print("\n")
-	fmt.Print(darkColors[0])
-	fmt.Print("\n")
-	fmt.Print(normalColors[0])
-	fmt.Print("\n")
+func getSequenceImg(sequence string, matchMask string, segmentMask string, charSet []string) *image.RGBA {
+	palette := getSequencePalette(getColors(), charSet, 0, 0.6)
+	matchPalette := getSequencePalette(getMatchColors(), charSet, 0.6, 1)
 
-	segmentCount, _ := strconv.ParseInt(string(genome.segmentMask[1]), 36, 0)
-	segmentCount = segmentCount % 16
-
-	fmt.Print(segmentCount)
-	fmt.Print("\n")
-
-	width := int(math.Ceil(math.Sqrt(float64(len(genome.rna)))))
+	width := int(math.Ceil(math.Sqrt(float64(len(sequence)))))
 	height := width
 	upLeft := image.Point{0, 0}
 	lowRight := image.Point{width, height}
@@ -362,64 +514,17 @@ func (genome *Genome) writeImage() {
 	dc.Clear()
 	dc.SetRGB(0, 0, 0)
 
-	colors := map[string]*RGBA{
-		"a": segmentColors[0].luminance(0.3),
-		"t": segmentColors[0].luminance(0.4),
-		"g": segmentColors[0].luminance(0.5),
-		"c": segmentColors[0].luminance(0.6),
-	}
+	var x, y int
+	for i, b := range sequence {
+		char := string(b)
+		segmentMaskIndex, _ := strconv.ParseInt(string(segmentMask[i]), 36, 0)
+		segmentMaskIndex = segmentMaskIndex % int64(len(palette[0]))
 
-	matchColors := map[string]*RGBA{
-		"a": segmentMatchColors[0].luminance(0.7),
-		"t": segmentMatchColors[0].luminance(0.8),
-		"g": segmentMatchColors[0].luminance(0.9),
-		"c": segmentMatchColors[0].luminance(1),
-	}
-
-	x := 0
-	y := 0
-
-	for i, char := range genome.rna {
-		strChar := string(char)
-		if i < len(genome.segmentMask) {
-			segmentCount, _ := strconv.ParseInt(string(genome.segmentMask[i]), 36, 0)
-			segmentCount = segmentCount % 16
-			// fmt.Printf("%d", segmentCount)
-			// r, g, b, _ := segmentColors[segmentCount].RGBA()
-			segmentColor := segmentColors[segmentCount]
-			segmentMatchColor := segmentMatchColors[segmentCount]
-			// r, g, b, _ := palette.WebSafe[(segmentCount*12)-1].RGBA()
-			colors = map[string]*RGBA{
-				"a": segmentColor.luminance(0.3),
-				"t": segmentColor.luminance(0.4),
-				"g": segmentColor.luminance(0.5),
-				"c": segmentColor.luminance(0.6),
-			}
-			matchColors = map[string]*RGBA{
-				"a": segmentMatchColor.luminance(0.7),
-				"t": segmentMatchColor.luminance(0.8),
-				"g": segmentMatchColor.luminance(0.9),
-				"c": segmentMatchColor.luminance(1),
-			}
-		}
-
-		if !strings.Contains("atgc", strChar) {
-			img.Set(x, y, color.RGBA{0, 0, 0, 0xff})
+		if len(matchMask) > i && string(matchMask[i]) == "1" {
+			img.Set(x, y, matchPalette[int(segmentMaskIndex)][char])
 		} else {
-			matchMaskChar := "0"
-			if i < len(genome.matchMask) {
-				matchMaskChar = string(genome.matchMask[i])
-			}
-			switch matchMaskChar {
-			case "1":
-				img.Set(x, y, matchColors[strChar])
-				break
-			default:
-				img.Set(x, y, colors[strChar])
-				break
-			}
+			img.Set(x, y, palette[int(segmentMaskIndex)][char])
 		}
-
 		x++
 		if x >= width {
 			y++
@@ -427,60 +532,65 @@ func (genome *Genome) writeImage() {
 		}
 	}
 
+	return img
+}
+
+func (sequence *Sequence) writeImage() {
+	sequence.createSegmentMask()
+	img := getSequenceImg(sequence.chars, sequence.matchMask, sequence.segmentMask, sequence.charSet)
+
 	sb := img.Bounds()
-	dst := image.NewRGBA(image.Rect(0, 0, sb.Dx()*5, sb.Dy()*5))
-	draw.NearestNeighbor.Scale(dst, dst.Bounds(), img, sb, draw.Over, nil)
+	resizedImg := image.NewRGBA(image.Rect(0, 0, sb.Dx()*5, sb.Dy()*5))
+	draw.NearestNeighbor.Scale(resizedImg, resizedImg.Bounds(), img, sb, draw.Over, nil)
 
-	addLabel(dst, fmt.Sprintf("%s (%d)", genome.baseName, len(genome.rna)), 10, 30)
+	baseName := sequence.baseName
 
-	baseName := genome.baseName
-	if genome.compare != nil && genome.compare.baseName != "" {
-		baseName = genome.baseName + "-" + genome.compare.baseName
-		addLabel(dst, fmt.Sprintf("%s (%d)", genome.compare.baseName, len(genome.compare.rna)), 10, 60)
+	addLabel(resizedImg, fmt.Sprintf("%s (%d)", baseName, len(sequence.chars)), 10, 20)
+
+	if sequence.compare != nil && sequence.compare.baseName != "" {
+		baseName = sequence.baseName + "-" + sequence.compare.baseName
+		totalMatchSize := sequence.getTotalMatchSize()
+		addLabel(resizedImg, fmt.Sprintf("%s (%d codes)", sequence.compare.baseName, len(sequence.compare.chars)), 10, 40)
+		addLabel(resizedImg, fmt.Sprintf("Match: %d codes (%.2f%%)", totalMatchSize, (float64(totalMatchSize)/float64(len(sequence.chars))*float64(100))), 10, 80)
+		addLabel(resizedImg, fmt.Sprintf("Longest: %d codes", sequence.getLongestMatch()), 10, 60)
 	}
-
-	totalMatchSize := genome.getTotalMatchSize()
-	addLabel(dst, fmt.Sprintf("Longest match: %d", genome.getLongestMatch()), 10, 90)
-	addLabel(dst, fmt.Sprintf("Match: %d (%.2f%%)", totalMatchSize, (float64(totalMatchSize)/float64(len(genome.rna))*float64(100))), 10, 120)
 
 	filePath := "./genome/images/" + baseName + ".png"
 	fmt.Printf("Writing image: %s\n", filePath)
 	f, _ := os.Create(filePath)
-	png.Encode(f, dst)
+	png.Encode(f, resizedImg)
 }
 
-func (genome *Genome) compareTo(compareGenome *Genome) string {
+func (sequence *Sequence) compareTo(compareSequence *Sequence, min int) {
 
-	genome.compare = compareGenome
-	genome.findMatches(compareGenome)
-	longestMatch := genome.getLongestMatch()
-	totalMatchSize := genome.getTotalMatchSize()
+	sequence.compare = compareSequence
+	sequence.findMatches(compareSequence, min)
+	longestMatch := sequence.getLongestMatch()
+	totalMatchSize := sequence.getTotalMatchSize()
 
-	// fmt.Printf("%s\n\n", result)
-	// fmt.Printf("%s\n\n", genome.segmentMask)
-
-	fmt.Printf("\nGenome: %s (size: %d)\n", genome.baseName, len(genome.rna))
-	fmt.Printf("Compare to: %s (size: %d)\n", compareGenome.baseName, len(compareGenome.rna))
-	fmt.Printf("Total matches: %d\n", len(genome.matches))
+	fmt.Printf("\nGenome: %s (size: %d)\n", sequence.baseName, len(sequence.chars))
+	fmt.Printf("Compare to: %s (size: %d)\n", compareSequence.baseName, len(compareSequence.chars))
+	fmt.Printf("Total matches: %d\n", len(sequence.matches))
 	// fmt.Printf("Match sequence: %s\n", fmt.Sprint(matchSequence))
 	fmt.Printf("Longest match: %d\n", longestMatch)
-	fmt.Printf("Match: %.2f%%\n", (float64(totalMatchSize) / float64(len(genome.rna)) * float64(100)))
-	fmt.Printf("Check RNA size: %d\n", len(genome.rna))
-	fmt.Printf("Check match size: %d\n", len(genome.matchMask))
-	fmt.Printf("Check segment size: %d\n", len(genome.segmentMask))
-	fmt.Printf("%s\n", genome.rna[:100])
-	fmt.Printf("%s\n", genome.matchMask[:100])
-	fmt.Printf("%s\n", genome.segmentMask[:100])
+	fmt.Printf("Match: %.2f%%\n", (float64(totalMatchSize) / float64(len(sequence.chars)) * float64(100)))
+	fmt.Printf("Check RNA size: %d\n", len(sequence.chars))
+	fmt.Printf("Check match size: %d\n", len(sequence.matchMask))
+	fmt.Printf("Check segment size: %d\n", len(sequence.segmentMask))
+	fmt.Printf("%s\n", sequence.chars[:100])
+	fmt.Printf("%s\n", sequence.matchMask[:100])
+	// fmt.Printf("%s\n", sequence.segmentMask[:100])
+}
 
-	// genome.writeCompareImage(compareGenome)
-	// fmt.Printf("Result size: %d Check size: %d Compare size: %d\n", len(result), len(genome.rna), len(compareGenome.rna))
+var seededRand *rand.Rand = rand.New(
+	rand.NewSource(time.Now().UnixNano()))
 
-	// strconv.FormatFloat(output.duration, 'f', -1, 64)
-	return genome.rnaMatch
-	// img := image.NewRGBA(image.Rect(0, 0, 320, 240))
-	// x, y := 100, 100
-	// addLabel(img, x, y, "Test123")
-	// png.Encode(os.Stdout, img)
+func StringWithCharset(length int, charset string) string {
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[seededRand.Intn(len(charset))]
+	}
+	return string(b)
 }
 
 // compareCmd represents the compare command
@@ -501,201 +611,259 @@ to quickly create a Cobra application.`,
 		// // fmt.Printf("TEST: %s, %d\n", test[5:6], len(test))
 		// os.Exit(0)
 
-		genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-		genome1.createSegmentMask()
+		genome1 := NewSequenceFromFile("./genome/examples/COVID-19-MN908947.txt")
+		genome2 := NewSequenceFromFile("./genome/examples/RaTG13-MN996532.txt")
+		genome1.compareTo(genome2, 10)
+		genome1.writeImage()
 
-		// genome1 := NewGenomeFromFile("./genome/examples/HIV-1-AF033819.txt")
-		// genome1 := NewGenomeFromFile("./genome/examples/Pangolin-CoV-MT072864.txt")
+		protein1 := genome1.transcribe()
+		protein2 := genome2.transcribe()
+		protein1.compareTo(protein2, 3)
+		protein1.writeImage()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/H1N1/H1N1-seg1-NC_026438.txt")
-			genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg2-NC_026435.txt")
-			genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg3-NC_026437.txt")
-			genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg4-NC_026433.txt")
-			genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg5-NC_026436.txt")
-			genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg6-NC_026434.txt")
-			genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg7-NC_026431.txt")
-			genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg8-NC_026432.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/HIV-1-AF033819.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
-			genome2.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
 		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/SARS-CoV1-NC_004718.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
+		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/MERS-CoV-KT029139.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
+		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/HCoV-OC43-AY391777.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
+		}()
+
+		// genome2 := NewSequenceFromFile("./genome/examples/RaTG13-MN996532.txt")
+		// genome2.generateTranscription()
+		// genome1.compareTo(genome2, 10)
+		// genome1.writeProteinImage()
+		// genome1.writeImage()
+
+		os.Exit(0)
+
+		// genome1 := NewSequenceFromFile("./genome/examples/HIV-1-AF033819.txt")
+		// genome1 := NewSequenceFromFile("./genome/examples/Pangolin-CoV-MT072864.txt")
+
+		func() {
+			genome2 := NewSequence()
+			genome2.chars = StringWithCharset(len(genome1.chars), "atgc")
+			genome2.baseName = fmt.Sprintf("Randomly-Generated-RNA-%d", len(genome2.chars))
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+		}()
+
+		os.Exit(0)
 
 		// os.Exit(0)
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/HIV-1-AF033819.txt")
-			genome1.compareTo(genome2)
+			// genome1 := NewSequenceFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
+			genome2 := NewSequenceFromFile("./genome/examples/HIV-1-AF033819.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
+			genome2.writeImage()
+
+			func() {
+				genome3 := NewSequence()
+				genome3.chars = StringWithCharset(len(genome2.chars), "atgc")
+				genome3.baseName = fmt.Sprintf("Randomly-Generated-RNA-%d", len(genome3.chars))
+				genome1.compareTo(genome3, 10)
+				genome1.writeImage()
+			}()
+		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/H1N1/H1N1-seg1-NC_026438.txt")
+			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg2-NC_026435.txt")
+			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg3-NC_026437.txt")
+			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg4-NC_026433.txt")
+			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg5-NC_026436.txt")
+			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg6-NC_026434.txt")
+			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg7-NC_026431.txt")
+			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg8-NC_026432.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+			genome2.createSegmentMask()
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/EBOLA-NC_002549.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/EBOLA-NC_002549.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/HEP-C-NC_004102.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/HEP-C-NC_004102.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/Maesles-NC_001498.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/Maesles-NC_001498.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/Rabies-NC_001542.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/Rabies-NC_001542.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/SARS-CoV1-NC_004718.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/SARS-CoV1-NC_004718.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/SARS-CoV1-AY278741.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/SARS-CoV1-AY278741.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/MERS-CoV-KT029139.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/MERS-CoV-KT029139.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/HCoV-OC43-AY391777.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/HCoV-OC43-AY391777.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/HCoV-229E-MF542265.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/HCoV-229E-MF542265.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/HCoV-NL63-MG772808.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/HCoV-NL63-MG772808.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/HCoV-HKU1-AY597011.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/HCoV-HKU1-AY597011.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/RaTG13-MN996532.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/RaTG13-MN996532.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/Pangolin-CoV-MT072864.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/Pangolin-CoV-MT072864.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1)
+			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
 
 		func() {
-			// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome1.compareTo(genome2)
+			genome2 := NewSequenceFromFile("./genome/examples/COVID-19-MN908947.txt")
+			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			// genome2.createSegmentMask()
-			// genome2.compareTo(genome1)
+			// genome2.compareTo(genome1, 10)
 			// genome2.writeImage()
 		}()
 
-		// genome1 := NewGenomeFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-		// genome2 := NewGenomeFromFile("./genome/examples/RaTG13-MN996532.txt")
-		// genome2 := NewGenomeFromFile("./genome/examples/HIV-1-AF033819.txt")
-		// genome2 := NewGenomeFromFile("./genome/examples/EBOLA-NC_002549.txt")
-		// genome2 := NewGenomeFromFile("./genome/examples/HEP-C-NC_004102.txt")
-		// genome2 := NewGenomeFromFile("./genome/examples/Maesles-NC_001498.txt")
-		// genome2 := NewGenomeFromFile("./genome/examples/Rabies-NC_001542.txt")
-		// genome2 := NewGenomeFromFile("./genome/examples/SARS-NC_004718.txt")
-		// genome2 := NewGenomeFromFile("./genome/examples/SARS-AY278741.txt")
-		// genome2 := NewGenomeFromFile("./genome/examples/H1N1/H1N1-seg1-NC_026438.txt")
-		// genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg2-NC_026435.txt")
-		// genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg3-NC_026437.txt")
-		// genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg4-NC_026433.txt")
-		// genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg5-NC_026436.txt")
-		// genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg6-NC_026434.txt")
-		// genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg7-NC_026431.txt")
-		// genome2.appendRnaFromFile("./genome/examples/H1N1/H1N1-seg8-NC_026432.txt")
-		// fmt.Printf("File contents: %s\n\n", genome1.rna)
-		// fmt.Printf("File contents: %s\n\n", genome2.rna)
-		// genome1.compareTo(genome2)
+		// genome1 := NewSequenceFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
+		// genome2 := NewSequenceFromFile("./genome/examples/RaTG13-MN996532.txt")
+		// genome2 := NewSequenceFromFile("./genome/examples/HIV-1-AF033819.txt")
+		// genome2 := NewSequenceFromFile("./genome/examples/EBOLA-NC_002549.txt")
+		// genome2 := NewSequenceFromFile("./genome/examples/HEP-C-NC_004102.txt")
+		// genome2 := NewSequenceFromFile("./genome/examples/Maesles-NC_001498.txt")
+		// genome2 := NewSequenceFromFile("./genome/examples/Rabies-NC_001542.txt")
+		// genome2 := NewSequenceFromFile("./genome/examples/SARS-NC_004718.txt")
+		// genome2 := NewSequenceFromFile("./genome/examples/SARS-AY278741.txt")
+		// genome2 := NewSequenceFromFile("./genome/examples/H1N1/H1N1-seg1-NC_026438.txt")
+		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg2-NC_026435.txt")
+		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg3-NC_026437.txt")
+		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg4-NC_026433.txt")
+		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg5-NC_026436.txt")
+		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg6-NC_026434.txt")
+		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg7-NC_026431.txt")
+		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg8-NC_026432.txt")
+		// fmt.Printf("File contents: %s\n\n", genome1.dna)
+		// fmt.Printf("File contents: %s\n\n", genome2.dna)
+		// genome1.compareTo(genome2, 10)
 	},
 }
 
