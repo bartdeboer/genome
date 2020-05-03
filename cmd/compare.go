@@ -599,6 +599,11 @@ func StringWithCharset(length int, charset string) string {
 	return string(b)
 }
 
+func (genome1 *Sequence) writeCompareImages(genome2 *Sequence, min int) {
+	genome1.compareTo(genome2, min)
+	genome1.writeImage()
+}
+
 // compareCmd represents the compare command
 var compareCmd = &cobra.Command{
 	Use:   "compare",
@@ -622,146 +627,33 @@ to quickly create a Cobra application.`,
 		protein1 := genome1.transcribe()
 		protein1.writeImage()
 
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/RaTG13.MN996532.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
+		compareFiles := []string{
+			"./genome/examples/RaTG13.MN996532.txt",
+			"./genome/examples/Pangolin-CoV.MT072864.txt",
+			"./genome/examples/HIV-1.AF033819.txt",
+			"./genome/examples/HIV-2.KU179861.txt",
+			"./genome/examples/SARS-CoV1.NC_004718.txt",
+			"./genome/examples/SARS-CoV1.AY278741.txt",
+			"./genome/examples/MERS-CoV.KT029139.txt",
+			"./genome/examples/HCoV-OC43.AY391777.txt",
+			"./genome/examples/HCoV-229E.MF542265.txt",
+			"./genome/examples/HCoV-NL63.MG772808.txt",
+			"./genome/examples/HCoV-HKU1.AY597011.txt",
+			"./genome/examples/EBOLA.NC.002549.txt",
+			"./genome/examples/HEP-C.NC.004102.txt",
+			"./genome/examples/Maesles.NC.001498.txt",
+			"./genome/examples/Rabies.NC.001542.txt",
+		}
 
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/Pangolin-CoV.MT072864.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HIV-1.AF033819.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/SARS-CoV1.NC_004718.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/MERS-CoV.KT029139.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HCoV-OC43.AY391777.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HCoV-229E.MF542265.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HCoV-NL63.MG772808.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HCoV-HKU1.AY597011.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/EBOLA.NC_002549.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HEP-C.NC_004102.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/Maesles.NC_001498.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/Rabies.NC_001542.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-
-			protein2 := genome2.transcribe()
-			protein1.compareTo(protein2, 3)
-			protein1.writeImage()
-		}()
-
-		// genome2 := NewSequenceFromFile("./genome/examples/RaTG13-MN996532.txt")
-		// genome2.generateTranscription()
-		// genome1.compareTo(genome2, 10)
-		// genome1.writeProteinImage()
-		// genome1.writeImage()
+		for _, compareFile := range compareFiles {
+			func() {
+				genome2 := NewSequenceFromFile(compareFile)
+				genome1.writeCompareImages(genome2, 10)
+				protein1.writeCompareImages(genome2.transcribe(), 3)
+			}()
+		}
 
 		os.Exit(0)
-
-		// genome1 := NewSequenceFromFile("./genome/examples/HIV-1-AF033819.txt")
-		// genome1 := NewSequenceFromFile("./genome/examples/Pangolin-CoV-MT072864.txt")
 
 		func() {
 			genome2 := NewSequence()
@@ -772,26 +664,6 @@ to quickly create a Cobra application.`,
 		}()
 
 		os.Exit(0)
-
-		// os.Exit(0)
-
-		func() {
-			// genome1 := NewSequenceFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-			genome2 := NewSequenceFromFile("./genome/examples/HIV-1-AF033819.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-
-			func() {
-				genome3 := NewSequence()
-				genome3.chars = StringWithCharset(len(genome2.chars), "atgc")
-				genome3.baseName = fmt.Sprintf("Randomly-Generated-RNA-%d", len(genome3.chars))
-				genome1.compareTo(genome3, 10)
-				genome1.writeImage()
-			}()
-		}()
 
 		func() {
 			genome2 := NewSequenceFromFile("./genome/examples/H1N1/H1N1-seg1-NC_026438.txt")
@@ -808,153 +680,6 @@ to quickly create a Cobra application.`,
 			genome2.compareTo(genome1, 10)
 			genome2.writeImage()
 		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/EBOLA-NC_002549.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HEP-C-NC_004102.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/Maesles-NC_001498.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/Rabies-NC_001542.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/SARS-CoV1-NC_004718.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/SARS-CoV1-AY278741.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/MERS-CoV-KT029139.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HCoV-OC43-AY391777.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HCoV-229E-MF542265.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HCoV-NL63-MG772808.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HCoV-HKU1-AY597011.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/RaTG13-MN996532.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/Pangolin-CoV-MT072864.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
-		}()
-
-		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/COVID-19-MN908947.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-			// genome2.createSegmentMask()
-			// genome2.compareTo(genome1, 10)
-			// genome2.writeImage()
-		}()
-
-		// genome1 := NewSequenceFromFile("./genome/examples/SARS-CoV2-MN908947.txt")
-		// genome2 := NewSequenceFromFile("./genome/examples/RaTG13-MN996532.txt")
-		// genome2 := NewSequenceFromFile("./genome/examples/HIV-1-AF033819.txt")
-		// genome2 := NewSequenceFromFile("./genome/examples/EBOLA-NC_002549.txt")
-		// genome2 := NewSequenceFromFile("./genome/examples/HEP-C-NC_004102.txt")
-		// genome2 := NewSequenceFromFile("./genome/examples/Maesles-NC_001498.txt")
-		// genome2 := NewSequenceFromFile("./genome/examples/Rabies-NC_001542.txt")
-		// genome2 := NewSequenceFromFile("./genome/examples/SARS-NC_004718.txt")
-		// genome2 := NewSequenceFromFile("./genome/examples/SARS-AY278741.txt")
-		// genome2 := NewSequenceFromFile("./genome/examples/H1N1/H1N1-seg1-NC_026438.txt")
-		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg2-NC_026435.txt")
-		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg3-NC_026437.txt")
-		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg4-NC_026433.txt")
-		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg5-NC_026436.txt")
-		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg6-NC_026434.txt")
-		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg7-NC_026431.txt")
-		// genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg8-NC_026432.txt")
-		// fmt.Printf("File contents: %s\n\n", genome1.dna)
-		// fmt.Printf("File contents: %s\n\n", genome2.dna)
-		// genome1.compareTo(genome2, 10)
 	},
 }
 
