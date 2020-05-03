@@ -243,6 +243,8 @@ type Match struct {
 type Sequence struct {
 	file        string
 	baseName    string
+	name        string
+	description string
 	chars       string
 	mRna        string
 	rna         string
@@ -269,7 +271,9 @@ func NewSequenceFromFile(file string) *Sequence {
 	sequence := NewSequence()
 	sequence.file = file
 	sequence.baseName = filepath.Base(strings.TrimSuffix(file, filepath.Ext(file)))
-	sequence.appendDnaFromFile(file)
+	sequence.name = strings.Split(sequence.baseName, ".")[0]
+	sequence.description = "RNA Sequence"
+	sequence.appendSequenceFromFile(file)
 	sequence.segmentMask = strings.Repeat("0", len(sequence.chars))
 	sequence.matchMask = strings.Repeat("0", len(sequence.chars))
 	return sequence
@@ -283,7 +287,7 @@ func readFileContent(file string) string {
 	return string(content)
 }
 
-func (sequence *Sequence) appendDnaFromFile(file string) {
+func (sequence *Sequence) appendSequenceFromFile(file string) {
 	sequence.charSet = getDnaCharSet()
 	if sequence.segments == nil {
 		sequence.segments = []SequenceSegment{}
@@ -365,22 +369,24 @@ func (sequence *Sequence) findMatches(compareSequence *Sequence, min int) {
 	sequence.matchMask = mask
 }
 
-func (dnaSequence *Sequence) transcribe() *Sequence {
+func (sequence *Sequence) transcribe() *Sequence {
 	protein := NewSequence()
-	protein.baseName = "PROT-" + dnaSequence.baseName
+	protein.baseName = "PROT-" + sequence.baseName
+	protein.name = sequence.name
+	protein.description = "Amino Acid Sequence"
 	protein.charSet = getAminoAcidCharSet()
 	protein.segments = []SequenceSegment{}
 	// proteinChars := ""
 	mRna := ""
 	rna := ""
-	for _, char := range dnaSequence.chars {
+	for _, char := range sequence.chars {
 		mRnaChar := dnaMRnaMap[string(char)]
 		mRna += mRnaChar
 		rna += mRnaRnaMap[mRnaChar]
 	}
-	for _, segment := range dnaSequence.segments {
-		segmentChars := dnaSequence.chars[segment.start:segment.end]
-		start := len(protein.chars) + 1
+	for _, segment := range sequence.segments {
+		segmentChars := sequence.chars[segment.start:segment.end]
+		start := len(protein.chars)
 		// mRnaSegment := mRna[segment.start:segment.end]
 		// rnaSegment := rna[segment.start:segment.end]
 		// fmt.Printf("Got segment %d..%d \n%s\n%s\n%s\n", segment.start, segment.end, dnaSegment, mRnaSegment, rnaSegment)
@@ -398,8 +404,8 @@ func (dnaSequence *Sequence) transcribe() *Sequence {
 		}
 		protein.segments = append(protein.segments, SequenceSegment{segment.key, start, len(protein.chars)})
 	}
-	dnaSequence.mRna = mRna
-	dnaSequence.rna = rna
+	sequence.mRna = mRna
+	sequence.rna = rna
 	// dnaSequence.protein = protein
 	// dnaSequence.proteinSegments = proteinSegments
 	// fmt.Printf("%s\n", protein.chars)
@@ -543,16 +549,16 @@ func (sequence *Sequence) writeImage() {
 	resizedImg := image.NewRGBA(image.Rect(0, 0, sb.Dx()*5, sb.Dy()*5))
 	draw.NearestNeighbor.Scale(resizedImg, resizedImg.Bounds(), img, sb, draw.Over, nil)
 
+	addLabel(resizedImg, fmt.Sprintf("%s", sequence.description), 10, 20)
+	addLabel(resizedImg, fmt.Sprintf("%s (%d codes)", sequence.name, len(sequence.chars)), 10, 40)
+
 	baseName := sequence.baseName
-
-	addLabel(resizedImg, fmt.Sprintf("%s (%d)", baseName, len(sequence.chars)), 10, 20)
-
 	if sequence.compare != nil && sequence.compare.baseName != "" {
 		baseName = sequence.baseName + "-" + sequence.compare.baseName
 		totalMatchSize := sequence.getTotalMatchSize()
-		addLabel(resizedImg, fmt.Sprintf("%s (%d codes)", sequence.compare.baseName, len(sequence.compare.chars)), 10, 40)
+		addLabel(resizedImg, fmt.Sprintf("%s (%d codes)", sequence.compare.name, len(sequence.compare.chars)), 10, 60)
 		addLabel(resizedImg, fmt.Sprintf("Match: %d codes (%.2f%%)", totalMatchSize, (float64(totalMatchSize)/float64(len(sequence.chars))*float64(100))), 10, 80)
-		addLabel(resizedImg, fmt.Sprintf("Longest: %d codes", sequence.getLongestMatch()), 10, 60)
+		addLabel(resizedImg, fmt.Sprintf("Longest: %d codes", sequence.getLongestMatch()), 10, 100)
 	}
 
 	filePath := "./genome/images/" + baseName + ".png"
@@ -611,18 +617,13 @@ to quickly create a Cobra application.`,
 		// // fmt.Printf("TEST: %s, %d\n", test[5:6], len(test))
 		// os.Exit(0)
 
-		genome1 := NewSequenceFromFile("./genome/examples/COVID-19-MN908947.txt")
-		genome2 := NewSequenceFromFile("./genome/examples/RaTG13-MN996532.txt")
-		genome1.compareTo(genome2, 10)
+		genome1 := NewSequenceFromFile("./genome/examples/COVID-19.MN908947.txt")
 		genome1.writeImage()
-
 		protein1 := genome1.transcribe()
-		protein2 := genome2.transcribe()
-		protein1.compareTo(protein2, 3)
 		protein1.writeImage()
 
 		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HIV-1-AF033819.txt")
+			genome2 := NewSequenceFromFile("./genome/examples/RaTG13.MN996532.txt")
 			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 
@@ -632,7 +633,7 @@ to quickly create a Cobra application.`,
 		}()
 
 		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/SARS-CoV1-NC_004718.txt")
+			genome2 := NewSequenceFromFile("./genome/examples/Pangolin-CoV.MT072864.txt")
 			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 
@@ -642,7 +643,7 @@ to quickly create a Cobra application.`,
 		}()
 
 		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/MERS-CoV-KT029139.txt")
+			genome2 := NewSequenceFromFile("./genome/examples/HIV-1.AF033819.txt")
 			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 
@@ -652,7 +653,7 @@ to quickly create a Cobra application.`,
 		}()
 
 		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HCoV-OC43-AY391777.txt")
+			genome2 := NewSequenceFromFile("./genome/examples/SARS-CoV1.NC_004718.txt")
 			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 
@@ -662,7 +663,7 @@ to quickly create a Cobra application.`,
 		}()
 
 		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HCoV-229E-MF542265.txt")
+			genome2 := NewSequenceFromFile("./genome/examples/MERS-CoV.KT029139.txt")
 			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 
@@ -672,7 +673,7 @@ to quickly create a Cobra application.`,
 		}()
 
 		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HCoV-NL63-MG772808.txt")
+			genome2 := NewSequenceFromFile("./genome/examples/HCoV-OC43.AY391777.txt")
 			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 
@@ -682,7 +683,67 @@ to quickly create a Cobra application.`,
 		}()
 
 		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/HCoV-HKU1-AY597011.txt")
+			genome2 := NewSequenceFromFile("./genome/examples/HCoV-229E.MF542265.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
+		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/HCoV-NL63.MG772808.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
+		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/HCoV-HKU1.AY597011.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
+		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/EBOLA.NC_002549.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
+		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/HEP-C.NC_004102.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
+		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/Maesles.NC_001498.txt")
+			genome1.compareTo(genome2, 10)
+			genome1.writeImage()
+
+			protein2 := genome2.transcribe()
+			protein1.compareTo(protein2, 3)
+			protein1.writeImage()
+		}()
+
+		func() {
+			genome2 := NewSequenceFromFile("./genome/examples/Rabies.NC_001542.txt")
 			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 
@@ -734,13 +795,13 @@ to quickly create a Cobra application.`,
 
 		func() {
 			genome2 := NewSequenceFromFile("./genome/examples/H1N1/H1N1-seg1-NC_026438.txt")
-			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg2-NC_026435.txt")
-			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg3-NC_026437.txt")
-			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg4-NC_026433.txt")
-			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg5-NC_026436.txt")
-			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg6-NC_026434.txt")
-			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg7-NC_026431.txt")
-			genome2.appendDnaFromFile("./genome/examples/H1N1/H1N1-seg8-NC_026432.txt")
+			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg2-NC_026435.txt")
+			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg3-NC_026437.txt")
+			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg4-NC_026433.txt")
+			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg5-NC_026436.txt")
+			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg6-NC_026434.txt")
+			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg7-NC_026431.txt")
+			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg8-NC_026432.txt")
 			genome1.compareTo(genome2, 10)
 			genome1.writeImage()
 			genome2.createSegmentMask()
