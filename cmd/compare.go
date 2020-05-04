@@ -142,19 +142,33 @@ var mRnaRnaMap = map[string]string{
 	"g": "c",
 }
 
+var mRnaMin1SlipperySites = []string{
+	"uuuuuua",
+	"uuuaaac",
+}
+
+var min1SlipperySites = []string{
+	"tttaaac",
+	"tttaaag",
+	"tttaaat",
+}
+
 var dnaStartCodon = "atg"
 var rnaStartCodon = "uac"
 var mRnaStartCodon = "aug"
+
 var dnaStopCodons = map[string]bool{
 	"tag": true,
 	"taa": true,
 	"tga": true,
 }
+
 var mRnaStopCodons = map[string]bool{
 	"auc": true,
 	"auu": true,
 	"acu": true,
 }
+
 var rnaStopCodons = map[string]bool{
 	"uaa": true,
 	"uag": true,
@@ -244,6 +258,7 @@ type Sequence struct {
 	file        string
 	baseName    string
 	name        string
+	suffix      string
 	description string
 	chars       string
 	mRna        string
@@ -271,6 +286,7 @@ func NewSequenceFromFile(file string) *Sequence {
 	sequence := NewSequence()
 	sequence.file = file
 	sequence.baseName = filepath.Base(strings.TrimSuffix(file, filepath.Ext(file)))
+	sequence.suffix = "-RNA"
 	sequence.name = strings.Split(sequence.baseName, ".")[0]
 	sequence.description = "RNA Sequence"
 	sequence.appendSequenceFromFile(file)
@@ -331,6 +347,44 @@ func (sequence *Sequence) appendSequenceFromFile(file string) {
 	sequence.chars += chars
 }
 
+func (sequence *Sequence) findOrfs() {
+	for i := 0; i < len(sequence.chars); {
+		remainder := sequence.chars[i:]
+		start := strings.Index(remainder, dnaStartCodon)
+		if start == -1 {
+			break
+		}
+		newSegment := remainder[start:]
+		j := 0
+		var aminoAcid string
+		for ; j < len(newSegment)-2; j += 3 {
+			codon := newSegment[j : j+3]
+			if codon == dnaStartCodon {
+				fmt.Printf("Found start codon at %d\n", i+start+j)
+			}
+			char := codonTranslation[strings.ToUpper(codon)]
+			aminoAcid += string(char)
+			if j >= 6 {
+				last7 := newSegment[j-4 : j+3]
+				if last7 == "tttaaac" ||
+					last7 == "tttaaag" ||
+					last7 == "tttaaat" {
+					fmt.Printf("Found slippery site at %d %s\n", i+start+j, last7)
+					j--
+					continue
+				}
+			}
+			if codon == "tag" ||
+				codon == "taa" ||
+				codon == "tga" {
+				fmt.Printf("ORF at %d..%d: %s\n", i+start, i+start+j, aminoAcid)
+				break
+			}
+		}
+		i = i + start + j + 3
+	}
+}
+
 func findLongestMatch(source string, target string, min int) Match {
 	var match Match
 	length := int(math.Min(float64(min), float64(len(source))))
@@ -351,7 +405,7 @@ func findMatches(source string, target string, min int) (matches []Match, mask s
 	for i := 0; i < len(source); {
 		match := findLongestMatch(source[i:], target, min)
 		match.sourceIndex = i
-		if match.length > min {
+		if match.length >= min {
 			matches = append(matches, match)
 			mask += strings.Repeat("1", match.length)
 			i += match.length
@@ -371,7 +425,8 @@ func (sequence *Sequence) findMatches(compareSequence *Sequence, min int) {
 
 func (sequence *Sequence) transcribe() *Sequence {
 	protein := NewSequence()
-	protein.baseName = "PROT-" + sequence.baseName
+	protein.baseName = sequence.baseName
+	protein.suffix = "-AA"
 	protein.name = sequence.name
 	protein.description = "Amino Acid Sequence"
 	protein.charSet = getAminoAcidCharSet()
@@ -410,6 +465,10 @@ func (sequence *Sequence) transcribe() *Sequence {
 	// dnaSequence.proteinSegments = proteinSegments
 	// fmt.Printf("%s\n", protein.chars)
 	return protein
+}
+
+func replaceChars(sequence string, replacement string, offset int) string {
+	return sequence[:offset] + replacement + sequence[offset+len(replacement):]
 }
 
 func createSegmentMask(sequence string, segments []SequenceSegment) string {
@@ -507,6 +566,7 @@ func getSequencePalette(colors []RGBA, charSet []string, low float64, high float
 }
 
 func getSequenceImg(sequence string, matchMask string, segmentMask string, charSet []string) *image.RGBA {
+	charSetString := strings.Join(charSet, "")
 	palette := getSequencePalette(getColors(), charSet, 0, 0.6)
 	matchPalette := getSequencePalette(getMatchColors(), charSet, 0.6, 1)
 
@@ -526,10 +586,12 @@ func getSequenceImg(sequence string, matchMask string, segmentMask string, charS
 		segmentMaskIndex, _ := strconv.ParseInt(string(segmentMask[i]), 36, 0)
 		segmentMaskIndex = segmentMaskIndex % int64(len(palette))
 
-		if len(matchMask) > i && string(matchMask[i]) == "1" {
-			img.Set(x, y, matchPalette[int(segmentMaskIndex)][char])
-		} else {
-			img.Set(x, y, palette[int(segmentMaskIndex)][char])
+		if strings.Index(charSetString, char) >= 0 {
+			if len(matchMask) > i && string(matchMask[i]) == "1" {
+				img.Set(x, y, matchPalette[int(segmentMaskIndex)][char])
+			} else {
+				img.Set(x, y, palette[int(segmentMaskIndex)][char])
+			}
 		}
 		x++
 		if x >= width {
@@ -541,7 +603,7 @@ func getSequenceImg(sequence string, matchMask string, segmentMask string, charS
 	return img
 }
 
-func (sequence *Sequence) writeImage() {
+func (sequence *Sequence) writeImage(labels []string) {
 	sequence.createSegmentMask()
 	img := getSequenceImg(sequence.chars, sequence.matchMask, sequence.segmentMask, sequence.charSet)
 
@@ -561,7 +623,11 @@ func (sequence *Sequence) writeImage() {
 		addLabel(resizedImg, fmt.Sprintf("Longest: %d codes", sequence.getLongestMatch()), 10, 100)
 	}
 
-	filePath := "./genome/images/" + baseName + ".png"
+	for i, label := range labels {
+		addLabel(resizedImg, label, 10, (120 + (float64(i) * 20)))
+	}
+
+	filePath := "./genome/images/" + baseName + sequence.suffix + ".png"
 	fmt.Printf("Writing image: %s\n", filePath)
 	f, _ := os.Create(filePath)
 	png.Encode(f, resizedImg)
@@ -599,9 +665,26 @@ func StringWithCharset(length int, charset string) string {
 	return string(b)
 }
 
-func (genome1 *Sequence) writeCompareImages(genome2 *Sequence, min int) {
-	genome1.compareTo(genome2, min)
-	genome1.writeImage()
+func (sequence1 *Sequence) writeCompareImages(sequence2 *Sequence, min int) {
+	random2 := NewSequence()
+	random2.charSet = sequence2.charSet
+	random2.chars = StringWithCharset(len(sequence2.chars), strings.Join(sequence2.charSet, ""))
+	sequence1.compareTo(random2, min)
+	randomMatchSize := sequence1.getTotalMatchSize()
+	sequence1.compareTo(sequence2, min)
+	sequence1.writeImage([]string{
+		fmt.Sprintf("Random match: %d codes (%.2f%%)", randomMatchSize, (float64(randomMatchSize) / float64(len(sequence1.chars)) * float64(100))),
+	})
+
+	random1 := NewSequence()
+	random1.charSet = sequence1.charSet
+	random1.chars = StringWithCharset(len(sequence1.chars), strings.Join(sequence1.charSet, ""))
+	sequence2.compareTo(random1, min)
+	randomMatchSize = sequence2.getTotalMatchSize()
+	sequence2.compareTo(sequence1, min)
+	sequence2.writeImage([]string{
+		fmt.Sprintf("Random match: %d codes (%.2f%%)", randomMatchSize, (float64(randomMatchSize) / float64(len(sequence2.chars)) * float64(100))),
+	})
 }
 
 // compareCmd represents the compare command
@@ -622,10 +705,14 @@ to quickly create a Cobra application.`,
 		// // fmt.Printf("TEST: %s, %d\n", test[5:6], len(test))
 		// os.Exit(0)
 
-		genome1 := NewSequenceFromFile("./genome/examples/COVID-19.MN908947.txt")
-		genome1.writeImage()
+		genome1 := NewSequenceFromFile("./genome/examples/COVID-19.NC_045512.txt")
+
+		// genome1.findOrfs()
+		// os.Exit(0)
+
+		genome1.writeImage([]string{})
 		protein1 := genome1.transcribe()
-		protein1.writeImage()
+		protein1.writeImage([]string{})
 
 		compareFiles := []string{
 			"./genome/examples/RaTG13.MN996532.txt",
@@ -639,29 +726,39 @@ to quickly create a Cobra application.`,
 			"./genome/examples/HCoV-229E.MF542265.txt",
 			"./genome/examples/HCoV-NL63.MG772808.txt",
 			"./genome/examples/HCoV-HKU1.AY597011.txt",
-			"./genome/examples/EBOLA.NC.002549.txt",
-			"./genome/examples/HEP-C.NC.004102.txt",
-			"./genome/examples/Maesles.NC.001498.txt",
-			"./genome/examples/Rabies.NC.001542.txt",
+			"./genome/examples/EBOLA.NC_002549.txt",
+			"./genome/examples/HEP-C.NC_004102.txt",
+			"./genome/examples/Maesles.NC_001498.txt",
+			"./genome/examples/Rabies.NC_001542.txt",
+			"./genome/examples/COVID-19.MN908947.txt",
 		}
 
 		for _, compareFile := range compareFiles {
 			func() {
 				genome2 := NewSequenceFromFile(compareFile)
-				genome1.writeCompareImages(genome2, 10)
-				protein1.writeCompareImages(genome2.transcribe(), 3)
+				genome1.writeCompareImages(genome2, 12)              // 10
+				protein1.writeCompareImages(genome2.transcribe(), 5) // 4
 			}()
 		}
 
-		os.Exit(0)
-
-		func() {
-			genome2 := NewSequence()
-			genome2.chars = StringWithCharset(len(genome1.chars), "atgc")
-			genome2.baseName = fmt.Sprintf("Randomly-Generated-RNA-%d", len(genome2.chars))
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
-		}()
+		// func() {
+		// 	genome2 := NewSequence()
+		// 	genome2.description = "RNA Sequence"
+		// 	genome2.charSet = getDnaCharSet()
+		// 	genome2.chars = StringWithCharset(len(genome1.chars), "atgc")
+		// 	genome2.baseName = fmt.Sprintf("Random-%d", len(genome2.chars))
+		// 	genome2.name = "Random RNA"
+		// 	genome2.suffix = "-R"
+		// 	genome1.writeCompareImages(genome2, 10)
+		// 	protein2 := NewSequence()
+		// 	protein2.description = "Amino Acid Sequence"
+		// 	protein2.charSet = getAminoAcidCharSet()
+		// 	protein2.chars = StringWithCharset(len(protein1.chars), strings.Join(protein1.charSet, ""))
+		// 	protein2.baseName = fmt.Sprintf("Random-%d", len(protein2.chars))
+		// 	protein2.name = "Random Amino Acid"
+		// 	protein2.suffix = "-P"
+		// 	protein1.writeCompareImages(protein2, 4)
+		// }()
 
 		os.Exit(0)
 
@@ -674,11 +771,11 @@ to quickly create a Cobra application.`,
 			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg6-NC_026434.txt")
 			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg7-NC_026431.txt")
 			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg8-NC_026432.txt")
-			genome1.compareTo(genome2, 10)
-			genome1.writeImage()
+			genome1.compareTo(genome2, 9)
+			genome1.writeImage([]string{})
 			genome2.createSegmentMask()
-			genome2.compareTo(genome1, 10)
-			genome2.writeImage()
+			genome2.compareTo(genome1, 9)
+			genome2.writeImage([]string{})
 		}()
 	},
 }
