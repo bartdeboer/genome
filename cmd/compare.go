@@ -714,6 +714,7 @@ to quickly create a Cobra application.`,
 		protein1.writeImage()
 
 		compareFiles := []string{
+			// "./genome/examples/COVID-19-Peru.MT263074.txt",
 			"./genome/examples/RaTG13.MN996532.txt",
 			"./genome/examples/Pangolin-CoV.MT072864.txt",
 			"./genome/examples/HIV-1.AF033819.txt",
