@@ -1,18 +1,7 @@
-/*
-Copyright © 2020 NAME HERE <EMAIL ADDRESS>
+// Copyright 2020 Bart de Boer. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
 package cmd
 
 import (
@@ -634,7 +623,7 @@ func (sequence *Sequence) writeImage() {
 		addLabel(resizedImg, label, 10, (60 + (float64(i) * 20)))
 	}
 
-	filePath := "./genome/images/" + baseName + sequence.suffix + ".png"
+	filePath := "./images/" + baseName + sequence.suffix + ".png"
 	fmt.Printf("Writing image: %s\n", filePath)
 	f, _ := os.Create(filePath)
 	png.Encode(f, resizedImg)
@@ -704,7 +693,7 @@ to quickly create a Cobra application.`,
 		// // fmt.Printf("TEST: %s, %d\n", test[5:6], len(test))
 		// os.Exit(0)
 
-		genome1 := NewSequenceFromFile("./genome/examples/COVID-19.NC_045512.txt")
+		genome1 := NewSequenceFromFile("./examples/COVID-19.NC_045512.txt")
 
 		// genome1.findOrfs()
 		// os.Exit(0)
@@ -714,23 +703,23 @@ to quickly create a Cobra application.`,
 		protein1.writeImage()
 
 		compareFiles := []string{
-			// "./genome/examples/COVID-19-Peru.MT263074.txt",
-			"./genome/examples/RaTG13.MN996532.txt",
-			"./genome/examples/Pangolin-CoV.MT072864.txt",
-			"./genome/examples/HIV-1.AF033819.txt",
-			"./genome/examples/HIV-2.KU179861.txt",
-			"./genome/examples/SARS-CoV1.NC_004718.txt",
-			"./genome/examples/SARS-CoV1.AY278741.txt",
-			"./genome/examples/MERS-CoV.KT029139.txt",
-			"./genome/examples/HCoV-OC43.AY391777.txt",
-			"./genome/examples/HCoV-229E.MF542265.txt",
-			"./genome/examples/HCoV-NL63.MG772808.txt",
-			"./genome/examples/HCoV-HKU1.AY597011.txt",
-			"./genome/examples/EBOLA.NC_002549.txt",
-			"./genome/examples/HEP-C.NC_004102.txt",
-			"./genome/examples/Maesles.NC_001498.txt",
-			"./genome/examples/Rabies.NC_001542.txt",
-			"./genome/examples/COVID-19.MN908947.txt",
+			// "./examples/COVID-19-Peru.MT263074.txt",
+			"./examples/RaTG13.MN996532.txt",
+			"./examples/Pangolin-CoV.MT072864.txt",
+			"./examples/HIV-1.AF033819.txt",
+			"./examples/HIV-2.KU179861.txt",
+			"./examples/SARS-CoV1.NC_004718.txt",
+			"./examples/SARS-CoV1.AY278741.txt",
+			"./examples/MERS-CoV.KT029139.txt",
+			"./examples/HCoV-OC43.AY391777.txt",
+			"./examples/HCoV-229E.MF542265.txt",
+			"./examples/HCoV-NL63.MG772808.txt",
+			"./examples/HCoV-HKU1.AY597011.txt",
+			"./examples/EBOLA.NC_002549.txt",
+			"./examples/HEP-C.NC_004102.txt",
+			"./examples/Maesles.NC_001498.txt",
+			"./examples/Rabies.NC_001542.txt",
+			"./examples/COVID-19.MN908947.txt",
 		}
 
 		for _, compareFile := range compareFiles {
@@ -763,14 +752,14 @@ to quickly create a Cobra application.`,
 		os.Exit(0)
 
 		func() {
-			genome2 := NewSequenceFromFile("./genome/examples/H1N1/H1N1-seg1-NC_026438.txt")
-			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg2-NC_026435.txt")
-			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg3-NC_026437.txt")
-			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg4-NC_026433.txt")
-			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg5-NC_026436.txt")
-			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg6-NC_026434.txt")
-			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg7-NC_026431.txt")
-			genome2.appendSequenceFromFile("./genome/examples/H1N1/H1N1-seg8-NC_026432.txt")
+			genome2 := NewSequenceFromFile("./examples/H1N1/H1N1-seg1-NC_026438.txt")
+			genome2.appendSequenceFromFile("./examples/H1N1/H1N1-seg2-NC_026435.txt")
+			genome2.appendSequenceFromFile("./examples/H1N1/H1N1-seg3-NC_026437.txt")
+			genome2.appendSequenceFromFile("./examples/H1N1/H1N1-seg4-NC_026433.txt")
+			genome2.appendSequenceFromFile("./examples/H1N1/H1N1-seg5-NC_026436.txt")
+			genome2.appendSequenceFromFile("./examples/H1N1/H1N1-seg6-NC_026434.txt")
+			genome2.appendSequenceFromFile("./examples/H1N1/H1N1-seg7-NC_026431.txt")
+			genome2.appendSequenceFromFile("./examples/H1N1/H1N1-seg8-NC_026432.txt")
 			genome1.compareTo(genome2, 9)
 			genome1.writeImage()
 			genome2.createSegmentMask()
