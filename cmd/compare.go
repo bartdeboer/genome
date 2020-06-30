@@ -704,6 +704,8 @@ to quickly create a Cobra application.`,
 
 		compareFiles := []string{
 			// "./examples/COVID-19-Peru.MT263074.txt",
+			"./examples/bat-SL-CoVZC45.MG772933.txt",
+			"./examples/Bronchitis-isolate.MN566147.txt",
 			"./examples/RaTG13.MN996532.txt",
 			"./examples/Pangolin-CoV.MT072864.txt",
 			"./examples/HIV-1.AF033819.txt",
